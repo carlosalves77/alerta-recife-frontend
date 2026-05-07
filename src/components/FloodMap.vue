@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import { floodPoints, riskColors, riskLabels, type FloodPoint } from '../data/floodData'
+import { riskColors, riskLabels, intensityToRisk, riskToIntensity, type FloodPoint } from '../data/floodData'
+import axios from 'axios'
+import api from '../services/api'
 
 const mapContainerRef = ref<HTMLElement | null>(null)
 const mapToken = import.meta.env.VITE_MAPBOX_TOKEN as string
@@ -26,43 +28,49 @@ const isSearching = ref(false)
 const showSuggestions = ref(false)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
+// Draggable marker state
+const isDraggableMode = ref(false)
+const showConfirmLocation = ref(false)
+const dragAddress = ref('')
+const dragCoords = ref<{ lat: number; lng: number } | null>(null)
+const isResolvingAddress = ref(false)
+let draggableMarker: mapboxgl.Marker | null = null
+
 // New point form state
 const showNewPointForm = ref(false)
 const selectedLocation = ref<{ name: string; lat: number; lng: number; full_address: string } | null>(null)
 const newPointRisk = ref<FloodPoint['riskLevel']>('medio')
 const newPointDescription = ref('')
+const newPointLogger = ref('Anônimo')
+const newPointNeighborhood = ref('')
+const newPointReferencePoint = ref('')
+const isSubmitting = ref(false)
 
 // Dynamic points (added by user)
 const dynamicPoints = ref<FloodPoint[]>([])
 const dynamicMarkers: mapboxgl.Marker[] = []
 let nextId = 100
 
-// Preview marker for selected search result
-let previewMarker: mapboxgl.Marker | null = null
+// Backend flood points
+const backendPoints = ref<FloodPoint[]>([])
 
 async function searchGeocode(query: string) {
   if (!query || query.length < 3 || !mapToken) return
 
   isSearching.value = true
   try {
-    const params = new URLSearchParams({
-      q: query,
-      access_token: mapToken,
-      autocomplete: 'true',
-      country: 'br',
-      proximity: `${RECIFE_LNG},${RECIFE_LAT}`,
-      language: 'pt',
-      limit: '5',
-      types: 'address,street,place,neighborhood,locality'
+    const { data } = await axios.get('https://api.mapbox.com/search/geocode/v6/forward', {
+      params: {
+        q: query,
+        access_token: mapToken,
+        autocomplete: true,
+        country: 'br',
+        proximity: `${RECIFE_LNG},${RECIFE_LAT}`,
+        language: 'pt',
+        limit: 5,
+        types: 'address,street,place,neighborhood,locality'
+      }
     })
-
-    const res = await fetch(
-      `https://api.mapbox.com/search/geocode/v6/forward?${params.toString()}`
-    )
-
-    if (!res.ok) throw new Error('Geocoding request failed')
-
-    const data = await res.json()
 
     suggestions.value = (data.features || []).map((f: any) => ({
       id: f.id,
@@ -90,81 +98,265 @@ function onSearchInput() {
   }
   debounceTimer = setTimeout(() => {
     searchGeocode(searchQuery.value)
-  }, 350)
+  }, 400)
 }
 
 function selectSuggestion(suggestion: typeof suggestions.value[0]) {
-  selectedLocation.value = {
-    name: suggestion.name,
-    lat: suggestion.lat,
-    lng: suggestion.lng,
-    full_address: suggestion.full_address
-  }
-
-  searchQuery.value = suggestion.full_address || suggestion.name
   showSuggestions.value = false
-  showNewPointForm.value = true
 
-  // Fly to selected location and show preview marker
+  // Activate draggable mode and move marker to the suggestion
   if (map) {
+    activateDraggableMode()
+    if (draggableMarker) {
+      draggableMarker.setLngLat([suggestion.lng, suggestion.lat])
+    }
     map.flyTo({ center: [suggestion.lng, suggestion.lat], zoom: 15, duration: 1500 })
 
-    // Remove old preview marker
-    if (previewMarker) {
-      previewMarker.remove()
-      previewMarker = null
-    }
-
-    // Add preview marker (blue pulsing)
-    const el = document.createElement('div')
-    el.className = 'flood-marker flood-marker-preview'
-    previewMarker = new mapboxgl.Marker({ element: el })
-      .setLngLat([suggestion.lng, suggestion.lat])
-      .addTo(map)
+    // Pre-fill the address from the suggestion
+    dragAddress.value = suggestion.full_address || suggestion.name
+    dragCoords.value = { lat: suggestion.lat, lng: suggestion.lng }
+    showConfirmLocation.value = true
+    searchQuery.value = suggestion.full_address || suggestion.name
   }
+}
+
+// ─── Draggable Marker ──────────────────────────────────────────
+
+function activateDraggableMode() {
+  if (!map) return
+
+  // Already active? just show it
+  if (draggableMarker) {
+    isDraggableMode.value = true
+    return
+  }
+
+  isDraggableMode.value = true
+  showConfirmLocation.value = false
+  dragAddress.value = ''
+  dragCoords.value = null
+
+  const center = map.getCenter()
+
+  // Create the custom draggable pin element
+  const el = document.createElement('div')
+  el.className = 'draggable-pin'
+  el.innerHTML = `
+    <div class="pin-head">
+      <div class="pin-icon">📍</div>
+    </div>
+    <div class="pin-spike"></div>
+    <div class="pin-shadow"></div>
+  `
+
+  draggableMarker = new mapboxgl.Marker({
+    element: el,
+    draggable: true,
+    anchor: 'bottom'
+  })
+    .setLngLat([center.lng, center.lat])
+    .addTo(map)
+
+  // Drag events
+  draggableMarker.on('dragstart', () => {
+    el.classList.add('dragging')
+    showConfirmLocation.value = false
+  })
+
+  draggableMarker.on('dragend', () => {
+    el.classList.remove('dragging')
+    const lngLat = draggableMarker!.getLngLat()
+    dragCoords.value = { lat: parseFloat(lngLat.lat.toFixed(6)), lng: parseFloat(lngLat.lng.toFixed(6)) }
+    reverseGeocode(lngLat.lng, lngLat.lat)
+  })
+
+  // Initial drop animation
+  el.classList.add('pin-drop')
+  setTimeout(() => el.classList.remove('pin-drop'), 600)
+}
+
+async function reverseGeocode(lng: number, lat: number) {
+  isResolvingAddress.value = true
+  showConfirmLocation.value = true
+
+  try {
+    const { data } = await axios.get(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`, {
+      params: {
+        access_token: mapToken,
+        types: 'address,poi',
+        language: 'pt',
+        limit: 1
+      }
+    })
+
+    const feature = data.features?.[0]
+    dragAddress.value = feature?.place_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+  } catch (e) {
+    console.error('Reverse geocoding error:', e)
+    dragAddress.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+  } finally {
+    isResolvingAddress.value = false
+  }
+}
+
+function confirmDragLocation() {
+  if (!dragCoords.value) return
+
+  selectedLocation.value = {
+    name: dragAddress.value,
+    lat: dragCoords.value.lat,
+    lng: dragCoords.value.lng,
+    full_address: dragAddress.value
+  }
+
+  showConfirmLocation.value = false
+  showNewPointForm.value = true
+
+  // Scroll form into view
+  setTimeout(() => {
+    document.querySelector('.new-point-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, 400)
+}
+
+function cancelDraggableMode() {
+  isDraggableMode.value = false
+  showConfirmLocation.value = false
+  showNewPointForm.value = false
+  dragAddress.value = ''
+  dragCoords.value = null
+  searchQuery.value = ''
+
+  if (draggableMarker) {
+    draggableMarker.remove()
+    draggableMarker = null
+  }
+
+  // Also reset form
+  selectedLocation.value = null
+  newPointDescription.value = ''
+  newPointRisk.value = 'medio'
+  newPointNeighborhood.value = ''
+  newPointReferencePoint.value = ''
 }
 
 function cancelNewPoint() {
   showNewPointForm.value = false
   selectedLocation.value = null
-  searchQuery.value = ''
   newPointDescription.value = ''
   newPointRisk.value = 'medio'
+  newPointNeighborhood.value = ''
+  newPointReferencePoint.value = ''
+  searchQuery.value = ''
 
-  if (previewMarker) {
-    previewMarker.remove()
-    previewMarker = null
+  // Go back to confirm location mode if marker is still there
+  if (draggableMarker && dragCoords.value) {
+    showConfirmLocation.value = true
+  } else {
+    cancelDraggableMode()
   }
 }
 
-function confirmNewPoint() {
+async function confirmNewPoint() {
   if (!selectedLocation.value || !map) return
 
-  const point: FloodPoint = {
-    id: nextId++,
-    name: selectedLocation.value.name,
-    lat: selectedLocation.value.lat,
-    lng: selectedLocation.value.lng,
-    riskLevel: newPointRisk.value,
-    description: newPointDescription.value || 'Ponto de alagamento reportado por usuário.',
-    neighborhood: selectedLocation.value.full_address.split(',')[1]?.trim() || ''
+  isSubmitting.value = true
+
+  const neighborhood = newPointNeighborhood.value.trim() || selectedLocation.value.full_address.split(',')[1]?.trim() || ''
+  const description = newPointDescription.value || 'Ponto de alagamento reportado por usuário.'
+  const logger = newPointLogger.value.trim() || 'Anônimo'
+  const referencePoint = newPointReferencePoint.value.trim() || null
+
+  // POST to backend
+  try {
+    const body: Record<string, unknown> = {
+      intensity: riskToIntensity[newPointRisk.value],
+      logger,
+      description,
+      latitude: selectedLocation.value.lat,
+      neighborhood,
+      longitude: selectedLocation.value.lng
+    }
+
+    if (referencePoint) {
+      body.referencePoint = referencePoint
+    }
+
+    const { data } = await api.post('/flooding', body)
+
+    const point: FloodPoint = {
+      id: data.id ?? nextId++,
+      name: selectedLocation.value.name,
+      referencePoint: referencePoint ?? undefined,
+      lat: selectedLocation.value.lat,
+      lng: selectedLocation.value.lng,
+      riskLevel: newPointRisk.value,
+      description,
+      neighborhood,
+      logger,
+      confirmationVotes: 0
+    }
+
+    dynamicPoints.value.push(point)
+    addMarkerToMap(point)
+  } catch (e) {
+    console.error('Erro ao salvar ponto de alagamento:', e)
+    // Still add locally as fallback
+    const point: FloodPoint = {
+      id: nextId++,
+      name: selectedLocation.value!.name,
+      referencePoint: referencePoint ?? undefined,
+      lat: selectedLocation.value!.lat,
+      lng: selectedLocation.value!.lng,
+      riskLevel: newPointRisk.value,
+      description,
+      neighborhood,
+      logger,
+      confirmationVotes: 0
+    }
+    dynamicPoints.value.push(point)
+    addMarkerToMap(point)
+  } finally {
+    isSubmitting.value = false
   }
 
-  dynamicPoints.value.push(point)
-  addMarkerToMap(point)
+  // Clean up draggable mode completely
+  cancelDraggableMode()
+}
 
-  // Remove preview marker
-  if (previewMarker) {
-    previewMarker.remove()
-    previewMarker = null
+async function fetchFloodPoints() {
+  try {
+    const { data } = await api.get<Array<{
+      id: number
+      logger: string
+      referencePoint: string | null
+      neighborhood: string
+      description: string
+      latitude: number
+      longitude: number
+      intensity: string
+      confirmationVotes: number
+    }>>('/flooding')
+
+    backendPoints.value = data.map((item) => ({
+      id: item.id,
+      name: item.referencePoint || item.neighborhood,
+      referencePoint: item.referencePoint ?? undefined,
+      lat: item.latitude,
+      lng: item.longitude,
+      riskLevel: intensityToRisk[item.intensity] || 'medio',
+      description: item.description || '',
+      neighborhood: item.neighborhood,
+      logger: item.logger,
+      confirmationVotes: item.confirmationVotes
+    }))
+
+    // Add backend points to map
+    backendPoints.value.forEach((point) => {
+      addMarkerToMap(point)
+    })
+  } catch (e) {
+    console.error('Erro ao carregar pontos do backend:', e)
   }
-
-  // Reset form
-  showNewPointForm.value = false
-  selectedLocation.value = null
-  searchQuery.value = ''
-  newPointDescription.value = ''
-  newPointRisk.value = 'medio'
 }
 
 function addMarkerToMap(point: FloodPoint) {
@@ -173,15 +365,27 @@ function addMarkerToMap(point: FloodPoint) {
   const el = document.createElement('div')
   el.className = `flood-marker risk-${point.riskLevel}`
 
-  const popup = new mapboxgl.Popup({ offset: 15, maxWidth: '280px' })
+  const votes = point.confirmationVotes ?? 0
+  const loggerName = point.logger || 'Anônimo'
+
+  const popup = new mapboxgl.Popup({ offset: 15, maxWidth: '300px' })
     .setHTML(`
       <div class="popup-content">
         <div class="popup-name">${point.name}</div>
         <div class="popup-neighborhood">📍 ${point.neighborhood}</div>
+        ${point.referencePoint ? `<div class="popup-reference">🏠 ${point.referencePoint}</div>` : ''}
         <div class="popup-risk risk-${point.riskLevel}">
           ⚠️ Risco ${riskLabels[point.riskLevel]}
         </div>
-        <div class="popup-description">${point.description}</div>
+        ${point.description ? `<div class="popup-description">${point.description}</div>` : ''}
+        <div class="popup-logger">👤 ${loggerName}</div>
+        <div class="popup-votes">
+          <button class="popup-vote-btn" data-point-id="${point.id}" title="Confirmar alagamento">
+            👍
+          </button>
+          <span class="popup-vote-count">${votes}</span>
+          <span class="popup-vote-label">confirmações</span>
+        </div>
       </div>
     `)
 
@@ -210,22 +414,25 @@ onMounted(() => {
     style: 'mapbox://styles/mapbox/dark-v11',
     center: [RECIFE_LNG, RECIFE_LAT],
     zoom: 11.5,
-    accessToken: mapToken
+    accessToken: mapToken,
+    maxBounds: [
+      [-41.35, -9.48], // Sudoeste de Pernambuco
+      [-34.79, -7.38]  // Nordeste de Pernambuco
+    ]
   })
 
   map.addControl(new mapboxgl.NavigationControl(), 'top-right')
 
   map.on('load', () => {
-    // Add static flood points
-    floodPoints.forEach((point) => {
-      addMarkerToMap(point)
-    })
+    // Fetch flood points from backend API
+    fetchFloodPoints()
   })
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', closeSuggestionsOnClickOutside)
   if (debounceTimer) clearTimeout(debounceTimer)
+  if (draggableMarker) draggableMarker.remove()
   map?.remove()
 })
 </script>
@@ -253,7 +460,7 @@ onUnmounted(() => {
             @focus="showSuggestions = suggestions.length > 0"
           />
           <span v-if="isSearching" class="search-spinner"></span>
-          <button v-if="searchQuery" class="search-clear" @click="cancelNewPoint">✕</button>
+          <button v-if="searchQuery" class="search-clear" @click="searchQuery = ''; suggestions = []; showSuggestions = false">✕</button>
         </div>
 
         <!-- Suggestions dropdown -->
@@ -276,7 +483,7 @@ onUnmounted(() => {
         </ul>
       </div>
 
-      <!-- New Point Form (appears after selecting a location) -->
+      <!-- New Point Form (appears after confirming dragged location) -->
       <Transition name="slide-form">
         <div v-if="showNewPointForm && selectedLocation" class="new-point-form">
           <div class="form-header">
@@ -290,6 +497,28 @@ onUnmounted(() => {
               Lat: <strong>{{ selectedLocation.lat.toFixed(6) }}</strong> &nbsp;|&nbsp;
               Lng: <strong>{{ selectedLocation.lng.toFixed(6) }}</strong>
             </div>
+          </div>
+
+          <div class="form-field">
+            <label for="point-neighborhood">Bairro</label>
+            <input
+              id="point-neighborhood"
+              v-model="newPointNeighborhood"
+              type="text"
+              class="form-input"
+              placeholder="Nome do bairro (ex: Imbiribeira)"
+            />
+          </div>
+
+          <div class="form-field">
+            <label for="point-reference">Ponto de Referência (opcional)</label>
+            <input
+              id="point-reference"
+              v-model="newPointReferencePoint"
+              type="text"
+              class="form-input"
+              placeholder="Ex: Próximo ao Mercado São José"
+            />
           </div>
 
           <div class="form-field">
@@ -323,6 +552,17 @@ onUnmounted(() => {
           </div>
 
           <div class="form-field">
+            <label for="point-logger">Seu Nome</label>
+            <input
+              id="point-logger"
+              v-model="newPointLogger"
+              type="text"
+              class="form-input"
+              placeholder="Seu nome (ex: Carlos Alves)"
+            />
+          </div>
+
+          <div class="form-field">
             <label for="point-description">Descrição (opcional)</label>
             <textarea
               id="point-description"
@@ -333,9 +573,10 @@ onUnmounted(() => {
           </div>
 
           <div class="form-actions">
-            <button class="btn btn-secondary btn-sm" @click="cancelNewPoint">Cancelar</button>
-            <button class="btn btn-primary btn-sm" @click="confirmNewPoint">
-              ✓ Adicionar Ponto
+            <button class="btn btn-secondary btn-sm" @click="cancelNewPoint" :disabled="isSubmitting">Cancelar</button>
+            <button class="btn btn-primary btn-sm" @click="confirmNewPoint" :disabled="isSubmitting">
+              <span v-if="isSubmitting" class="search-spinner" style="width:14px;height:14px;border-width:2px;"></span>
+              {{ isSubmitting ? 'Enviando...' : '✓ Adicionar Ponto' }}
             </button>
           </div>
         </div>
@@ -353,6 +594,55 @@ onUnmounted(() => {
         <p>Adicione seu token no arquivo:</p>
         <code>VITE_MAPBOX_TOKEN=seu_token</code>
       </div>
+
+      <!-- Floating action button to activate draggable mode -->
+      <Transition name="fab-fade">
+        <button
+          v-if="hasToken && !isDraggableMode"
+          class="fab-report"
+          @click="activateDraggableMode"
+          title="Reportar alagamento"
+        >
+          <span class="fab-icon">🚨</span>
+          <span class="fab-label">Reportar Alagamento</span>
+        </button>
+      </Transition>
+
+      <!-- Draggable mode banner -->
+      <Transition name="banner-slide">
+        <div v-if="isDraggableMode && !showConfirmLocation && !showNewPointForm" class="drag-banner">
+          <div class="drag-banner-icon">✋</div>
+          <div class="drag-banner-text">
+            <strong>Arraste o marcador</strong> para o local do alagamento
+          </div>
+          <button class="drag-banner-cancel" @click="cancelDraggableMode">Cancelar</button>
+        </div>
+      </Transition>
+
+      <!-- Confirm location floating card -->
+      <Transition name="confirm-slide">
+        <div v-if="showConfirmLocation && !showNewPointForm" class="confirm-location-card">
+          <div class="confirm-location-header">
+            <span class="confirm-location-icon">📍</span>
+            <div class="confirm-location-info">
+              <div v-if="isResolvingAddress" class="confirm-address-loading">
+                <span class="search-spinner" style="width:14px;height:14px;border-width:2px;"></span>
+                Buscando endereço...
+              </div>
+              <div v-else class="confirm-address">{{ dragAddress }}</div>
+              <div v-if="dragCoords" class="confirm-coords">
+                {{ dragCoords.lat.toFixed(6) }}, {{ dragCoords.lng.toFixed(6) }}
+              </div>
+            </div>
+          </div>
+          <div class="confirm-location-actions">
+            <button class="btn btn-secondary btn-sm" @click="cancelDraggableMode">Cancelar</button>
+            <button class="btn btn-primary btn-sm" @click="confirmDragLocation" :disabled="isResolvingAddress">
+              ✓ Confirmar Local
+            </button>
+          </div>
+        </div>
+      </Transition>
 
       <!-- Legend overlay -->
       <div v-if="hasToken" class="map-legend">
