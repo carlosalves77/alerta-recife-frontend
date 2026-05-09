@@ -6,6 +6,27 @@ import { riskColors, riskLabels, intensityToRisk, riskToIntensity, type FloodPoi
 import axios from 'axios'
 import api from '../services/api'
 
+// Toast notification state
+const toastMessage = ref('')
+const toastType = ref<'error' | 'success' | 'info'>('info')
+const showToast = ref(false)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function displayToast(message: string, type: 'error' | 'success' | 'info' = 'info', duration = 5000) {
+  toastMessage.value = message
+  toastType.value = type
+  showToast.value = true
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    showToast.value = false
+  }, duration)
+}
+
+function dismissToast() {
+  showToast.value = false
+  if (toastTimer) clearTimeout(toastTimer)
+}
+
 const mapContainerRef = ref<HTMLElement | null>(null)
 const mapToken = import.meta.env.VITE_MAPBOX_TOKEN as string
 const hasToken = ref(!!mapToken)
@@ -42,7 +63,7 @@ const selectedLocation = ref<{ name: string; lat: number; lng: number; full_addr
 const newPointRisk = ref<FloodPoint['riskLevel']>('medio')
 const newPointDescription = ref('')
 const newPointLogger = ref('Anônimo')
-const newPointNeighborhood = ref('')
+
 const newPointReferencePoint = ref('')
 const isSubmitting = ref(false)
 
@@ -183,7 +204,7 @@ async function reverseGeocode(lng: number, lat: number) {
     const { data } = await axios.get(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`, {
       params: {
         access_token: mapToken,
-        types: 'address,poi',
+        types: 'address',
         language: 'pt',
         limit: 1
       }
@@ -235,7 +256,6 @@ function cancelDraggableMode() {
   selectedLocation.value = null
   newPointDescription.value = ''
   newPointRisk.value = 'medio'
-  newPointNeighborhood.value = ''
   newPointReferencePoint.value = ''
 }
 
@@ -244,7 +264,6 @@ function cancelNewPoint() {
   selectedLocation.value = null
   newPointDescription.value = ''
   newPointRisk.value = 'medio'
-  newPointNeighborhood.value = ''
   newPointReferencePoint.value = ''
   searchQuery.value = ''
 
@@ -261,7 +280,11 @@ async function confirmNewPoint() {
 
   isSubmitting.value = true
 
-  const neighborhood = newPointNeighborhood.value.trim() || selectedLocation.value.full_address.split(',')[1]?.trim() || ''
+  // Auto-extract street and neighborhood from address
+  // e.g. "Rua José Leonel Lopes 163, Cajueiro Seco, Recife" → street: "José Leonel Lopes 163", neighborhood: "Cajueiro Seco"
+  const addressParts = selectedLocation.value.full_address.split(',')
+  const street = addressParts[0]?.trim() || ''
+  const neighborhood = addressParts[1]?.trim() || ''
   const description = newPointDescription.value || 'Ponto de alagamento reportado por usuário.'
   const logger = newPointLogger.value.trim() || 'Anônimo'
   const referencePoint = newPointReferencePoint.value.trim() || null
@@ -270,6 +293,7 @@ async function confirmNewPoint() {
   try {
     const body: Record<string, unknown> = {
       intensity: riskToIntensity[newPointRisk.value],
+      street,
       logger,
       description,
       latitude: selectedLocation.value.lat,
@@ -286,6 +310,7 @@ async function confirmNewPoint() {
     const point: FloodPoint = {
       id: data.id ?? nextId++,
       name: selectedLocation.value.name,
+      street,
       referencePoint: referencePoint ?? undefined,
       lat: selectedLocation.value.lat,
       lng: selectedLocation.value.lng,
@@ -298,23 +323,17 @@ async function confirmNewPoint() {
 
     dynamicPoints.value.push(point)
     addMarkerToMap(point)
-  } catch (e) {
+    displayToast('Ponto de alagamento registrado com sucesso!', 'success')
+  } catch (e: any) {
     console.error('Erro ao salvar ponto de alagamento:', e)
-    // Still add locally as fallback
-    const point: FloodPoint = {
-      id: nextId++,
-      name: selectedLocation.value!.name,
-      referencePoint: referencePoint ?? undefined,
-      lat: selectedLocation.value!.lat,
-      lng: selectedLocation.value!.lng,
-      riskLevel: newPointRisk.value,
-      description,
-      neighborhood,
-      logger,
-      confirmationVotes: 0
+
+    // Handle 409 Conflict — nearby active point
+    if (e?.response?.status === 409) {
+      const msg = e.response.data?.message || 'Já existe um alerta ativo muito próximo a este local.'
+      displayToast(`⚠️ ${msg}`, 'error', 6000)
+    } else {
+      displayToast('Erro ao registrar ponto. Tente novamente.', 'error')
     }
-    dynamicPoints.value.push(point)
-    addMarkerToMap(point)
   } finally {
     isSubmitting.value = false
   }
@@ -323,10 +342,16 @@ async function confirmNewPoint() {
   cancelDraggableMode()
 }
 
+function clearAllMarkers() {
+  dynamicMarkers.forEach((m) => m.remove())
+  dynamicMarkers.length = 0
+}
+
 async function fetchFloodPoints() {
   try {
     const { data } = await api.get<Array<{
       id: number
+      street: string
       logger: string
       referencePoint: string | null
       neighborhood: string
@@ -339,7 +364,8 @@ async function fetchFloodPoints() {
 
     backendPoints.value = data.map((item) => ({
       id: item.id,
-      name: item.referencePoint || item.neighborhood,
+      name: item.street || item.neighborhood,
+      street: item.street,
       referencePoint: item.referencePoint ?? undefined,
       lat: item.latitude,
       lng: item.longitude,
@@ -359,6 +385,25 @@ async function fetchFloodPoints() {
   }
 }
 
+async function refreshFloodPoints() {
+  clearAllMarkers()
+  dynamicPoints.value = []
+  backendPoints.value = []
+  await fetchFloodPoints()
+}
+
+async function voteForPoint(pointId: number) {
+  try {
+    await api.patch(`/flooding/${pointId}/votes`)
+    displayToast('Voto registrado com sucesso! 👍', 'success')
+    // Refresh all markers to show updated vote count
+    await refreshFloodPoints()
+  } catch (e: any) {
+    console.error('Erro ao votar:', e)
+    displayToast('Erro ao registrar voto. Tente novamente.', 'error')
+  }
+}
+
 function addMarkerToMap(point: FloodPoint) {
   if (!map) return
 
@@ -371,7 +416,7 @@ function addMarkerToMap(point: FloodPoint) {
   const popup = new mapboxgl.Popup({ offset: 15, maxWidth: '300px' })
     .setHTML(`
       <div class="popup-content">
-        <div class="popup-name">${point.name}</div>
+        <div class="popup-name">${point.street || point.name}</div>
         <div class="popup-neighborhood">📍 ${point.neighborhood}</div>
         ${point.referencePoint ? `<div class="popup-reference">🏠 ${point.referencePoint}</div>` : ''}
         <div class="popup-risk risk-${point.riskLevel}">
@@ -407,6 +452,18 @@ function closeSuggestionsOnClickOutside(e: MouseEvent) {
 onMounted(() => {
   document.addEventListener('click', closeSuggestionsOnClickOutside)
 
+  // Event delegation for vote buttons inside map popups
+  document.addEventListener('click', (e: MouseEvent) => {
+    const target = e.target as HTMLElement
+    const voteBtn = target.closest('.popup-vote-btn') as HTMLElement | null
+    if (voteBtn) {
+      const pointId = voteBtn.getAttribute('data-point-id')
+      if (pointId) {
+        voteForPoint(Number(pointId))
+      }
+    }
+  })
+
   if (!mapToken || !mapContainerRef.value) return
 
   map = new mapboxgl.Map({
@@ -432,6 +489,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', closeSuggestionsOnClickOutside)
   if (debounceTimer) clearTimeout(debounceTimer)
+  if (toastTimer) clearTimeout(toastTimer)
   if (draggableMarker) draggableMarker.remove()
   map?.remove()
 })
@@ -499,16 +557,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="form-field">
-            <label for="point-neighborhood">Bairro</label>
-            <input
-              id="point-neighborhood"
-              v-model="newPointNeighborhood"
-              type="text"
-              class="form-input"
-              placeholder="Nome do bairro (ex: Imbiribeira)"
-            />
-          </div>
+
 
           <div class="form-field">
             <label for="point-reference">Ponto de Referência (opcional)</label>
@@ -663,5 +712,21 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Toast Notification -->
+    <Transition name="toast-slide">
+      <div
+        v-if="showToast"
+        class="toast-notification"
+        :class="`toast-${toastType}`"
+        @click="dismissToast"
+      >
+        <span class="toast-icon">
+          {{ toastType === 'error' ? '🚫' : toastType === 'success' ? '✅' : 'ℹ️' }}
+        </span>
+        <span class="toast-text">{{ toastMessage }}</span>
+        <button class="toast-close" @click.stop="dismissToast">✕</button>
+      </div>
+    </Transition>
   </section>
 </template>
