@@ -3,6 +3,7 @@ export const API_BASE = '/api/v1'
 export interface FloodPoint {
   id: number
   name: string
+  street?: string
   referencePoint?: string
   lat: number
   lng: number
