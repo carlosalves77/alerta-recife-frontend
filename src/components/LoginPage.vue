@@ -9,7 +9,9 @@ const props = defineProps<{
 const route = useRoute()
 const activeTab = ref<'login' | 'register'>('login')
 
-const GOOGLE_AUTH_URL = 'http://alerta-recife-service:4010/oauth2/authorization/google'
+const BACKEND_URL = import.meta.env.BACKEND_API as string
+
+const GOOGLE_AUTH_URL = BACKEND_URL + '/oauth2/authorization/google'
 
 onMounted(() => {
   const queryMode = route.query.mode as string || props.mode

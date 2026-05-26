@@ -51,18 +51,7 @@ function handleReportClick() {
 const RECIFE_LNG = -34.8770
 const RECIFE_LAT = -8.0476
 
-// Search state
-const searchQuery = ref('')
-const suggestions = ref<Array<{
-  id: string
-  name: string
-  full_address: string
-  lat: number
-  lng: number
-}>>([])
-const isSearching = ref(false)
-const showSuggestions = ref(false)
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
 
 // Draggable marker state
 const isDraggableMode = ref(false)
@@ -154,77 +143,7 @@ let nextId = 100
 // Backend flood points
 const backendPoints = ref<FloodPoint[]>([])
 
-async function searchGeocode(query: string) {
-  if (!query || query.length < 3 || !mapToken) return
 
-  isSearching.value = true
-  try {
-    const { data } = await axios.get('https://api.mapbox.com/search/geocode/v6/forward', {
-      params: {
-        q: query,
-        access_token: mapToken,
-        autocomplete: true,
-        country: 'br',
-        proximity: `${RECIFE_LNG},${RECIFE_LAT}`,
-        language: 'pt',
-        limit: 5,
-        types: 'address,street,place,neighborhood,locality'
-      }
-    })
-
-    suggestions.value = (data.features || []).map((f: any) => ({
-      id: f.id,
-      name: f.properties?.name || f.properties?.full_address || '',
-      full_address: f.properties?.full_address || '',
-      lng: f.geometry?.coordinates?.[0] ?? 0,
-      lat: f.geometry?.coordinates?.[1] ?? 0
-    }))
-
-    showSuggestions.value = suggestions.value.length > 0
-  } catch (e) {
-    console.error('Geocoding error:', e)
-    suggestions.value = []
-  } finally {
-    isSearching.value = false
-  }
-}
-
-function onSearchInput() {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  if (searchQuery.value.length < 3) {
-    suggestions.value = []
-    showSuggestions.value = false
-    return
-  }
-  debounceTimer = setTimeout(() => {
-    searchGeocode(searchQuery.value)
-  }, 400)
-}
-
-function selectSuggestion(suggestion: typeof suggestions.value[0]) {
-  showSuggestions.value = false
-
-  // Activate draggable mode and move marker to the suggestion
-  if (map) {
-    activateDraggableMode()
-    if (draggableMarker) {
-      draggableMarker.setLngLat([suggestion.lng, suggestion.lat])
-    }
-    map.flyTo({ center: [suggestion.lng, suggestion.lat], zoom: 15, duration: 1500 })
-
-    // Pre-fill the address from the suggestion
-    const fullAddr = suggestion.full_address || suggestion.name
-    dragAddress.value = fullAddr
-    dragCoords.value = { lat: suggestion.lat, lng: suggestion.lng }
-    showConfirmLocation.value = true
-    searchQuery.value = fullAddr
-
-    // Validate suggestion: must contain Pernambuco and have a street name
-    const inPernambuco = fullAddr.toLowerCase().includes('pernambuco')
-    const hasStreet = !!(suggestion.name && suggestion.name.trim().length > 0)
-    dragLocationValid.value = inPernambuco && hasStreet
-  }
-}
 
 // ─── Draggable Marker ──────────────────────────────────────────
 
@@ -358,7 +277,7 @@ function cancelDraggableMode() {
   showNewPointForm.value = false
   dragAddress.value = ''
   dragCoords.value = null
-  searchQuery.value = ''
+
 
   if (draggableMarker) {
     draggableMarker.remove()
@@ -625,15 +544,7 @@ function addMarkerToMap(point: FloodPoint) {
   dynamicMarkers.push(marker)
 }
 
-function closeSuggestionsOnClickOutside(e: MouseEvent) {
-  const target = e.target as HTMLElement
-  if (!target.closest('.search-autocomplete')) {
-    showSuggestions.value = false
-  }
-}
-
 onMounted(() => {
-  document.addEventListener('click', closeSuggestionsOnClickOutside)
 
   // Event delegation for vote buttons and gallery clicks inside map popups
   document.addEventListener('click', (e: MouseEvent) => {
@@ -739,8 +650,6 @@ function lightboxPrev() {
 }
 
 onUnmounted(() => {
-  document.removeEventListener('click', closeSuggestionsOnClickOutside)
-  if (debounceTimer) clearTimeout(debounceTimer)
   if (toastTimer) clearTimeout(toastTimer)
   if (draggableMarker) draggableMarker.remove()
   clearPhotos()
@@ -756,35 +665,7 @@ onUnmounted(() => {
       <p>Explore os locais com maior incidência de alagamentos na Grande Recife.</p>
     </div>
 
-    <!-- Search Bar -->
     <div v-if="hasToken" class="search-bar-wrapper">
-
-      <!-- Search Autocomplete -->
-      <div class="search-autocomplete">
-        <div class="search-input-wrapper">
-          <span class="search-icon">🔍</span>
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="search-input"
-            placeholder="Buscar endereço..."
-            @input="onSearchInput"
-            @focus="showSuggestions = suggestions.length > 0"
-          />
-          <span v-if="isSearching" class="search-spinner"></span>
-        </div>
-        <ul v-if="showSuggestions" class="suggestions-list">
-          <li
-            v-for="s in suggestions"
-            :key="s.id"
-            class="suggestion-item"
-            @click="selectSuggestion(s)"
-          >
-            <span class="suggestion-name">{{ s.name }}</span>
-            <span class="suggestion-address">{{ s.full_address }}</span>
-          </li>
-        </ul>
-      </div>
 
       <!-- New Point Form (appears after confirming dragged location) -->
       <Transition name="slide-form">
