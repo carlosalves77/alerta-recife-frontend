@@ -12,6 +12,12 @@ export interface FloodPoint {
   neighborhood: string
   logger?: string
   confirmationVotes?: number
+  images?: string[]
+  user?: {
+    id: string
+    username: string
+    profilePicture: string
+  }
 }
 
 // Mapping between backend intensity values and frontend riskLevel
@@ -30,7 +36,7 @@ export const riskToIntensity: Record<FloodPoint['riskLevel'], string> = {
 export const riskColors: Record<FloodPoint['riskLevel'], string> = {
   alto: '#ef4444',
   medio: '#f59e0b',
-  baixo: '#06b6d4'
+  baixo: '#3b82f6'
 }
 
 export const riskLabels: Record<FloodPoint['riskLevel'], string> = {

@@ -5,6 +5,8 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { riskColors, riskLabels, intensityToRisk, riskToIntensity, type FloodPoint } from '../data/floodData'
 import axios from 'axios'
 import api from '../services/api'
+import authService from '../services/authService'
+import { useRouter } from 'vue-router'
 
 // Toast notification state
 const toastMessage = ref('')
@@ -31,6 +33,19 @@ const mapContainerRef = ref<HTMLElement | null>(null)
 const mapToken = import.meta.env.VITE_MAPBOX_TOKEN as string
 const hasToken = ref(!!mapToken)
 let map: mapboxgl.Map | null = null
+const floodRouter = useRouter()
+
+// Auth check for creating flood points
+function handleReportClick() {
+  if (!authService.isAuthenticated()) {
+    displayToast('🔒 Você precisa estar logado para reportar um alagamento.', 'error', 4000)
+    setTimeout(() => {
+      floodRouter.push({ path: '/login', query: { mode: 'login' } })
+    }, 1500)
+    return
+  }
+  activateDraggableMode()
+}
 
 // Recife center for proximity bias
 const RECIFE_LNG = -34.8770
@@ -55,6 +70,7 @@ const showConfirmLocation = ref(false)
 const dragAddress = ref('')
 const dragCoords = ref<{ lat: number; lng: number } | null>(null)
 const isResolvingAddress = ref(false)
+const dragLocationValid = ref(false)
 let draggableMarker: mapboxgl.Marker | null = null
 
 // New point form state
@@ -62,9 +78,72 @@ const showNewPointForm = ref(false)
 const selectedLocation = ref<{ name: string; lat: number; lng: number; full_address: string } | null>(null)
 const newPointRisk = ref<FloodPoint['riskLevel']>('medio')
 const newPointDescription = ref('')
-const newPointLogger = ref('Anônimo')
+const loggedUsername = authService.getCachedProfile()?.username || authService.getUserInfo()?.name || 'Anônimo'
+const newPointLogger = ref(loggedUsername)
 
 const newPointReferencePoint = ref('')
+
+// Photo upload state
+const selectedPhotos = ref<File[]>([])
+const photoPreviewUrls = ref<string[]>([])
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const MAX_PHOTOS = 6
+
+function triggerFileInput() {
+  fileInputRef.value?.click()
+}
+
+function onPhotoSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files) return
+
+  const newFiles = Array.from(input.files)
+  const remaining = MAX_PHOTOS - selectedPhotos.value.length
+
+  if (remaining <= 0) {
+    displayToast(`Limite de ${MAX_PHOTOS} fotos atingido.`, 'error')
+    input.value = ''
+    return
+  }
+
+  const filesToAdd = newFiles.slice(0, remaining)
+  if (newFiles.length > remaining) {
+    displayToast(`Apenas ${remaining} foto(s) adicionada(s). Limite: ${MAX_PHOTOS}.`, 'info')
+  }
+
+  // Validate file types
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  const validFiles = filesToAdd.filter(f => {
+    if (!validTypes.includes(f.type)) {
+      displayToast(`Arquivo "${f.name}" não é uma imagem válida.`, 'error')
+      return false
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      displayToast(`Arquivo "${f.name}" excede 10MB.`, 'error')
+      return false
+    }
+    return true
+  })
+
+  validFiles.forEach(file => {
+    selectedPhotos.value.push(file)
+    photoPreviewUrls.value.push(URL.createObjectURL(file))
+  })
+
+  input.value = ''
+}
+
+function removePhoto(index: number) {
+  URL.revokeObjectURL(photoPreviewUrls.value[index])
+  selectedPhotos.value.splice(index, 1)
+  photoPreviewUrls.value.splice(index, 1)
+}
+
+function clearPhotos() {
+  photoPreviewUrls.value.forEach(url => URL.revokeObjectURL(url))
+  selectedPhotos.value = []
+  photoPreviewUrls.value = []
+}
 const isSubmitting = ref(false)
 
 // Dynamic points (added by user)
@@ -134,10 +213,16 @@ function selectSuggestion(suggestion: typeof suggestions.value[0]) {
     map.flyTo({ center: [suggestion.lng, suggestion.lat], zoom: 15, duration: 1500 })
 
     // Pre-fill the address from the suggestion
-    dragAddress.value = suggestion.full_address || suggestion.name
+    const fullAddr = suggestion.full_address || suggestion.name
+    dragAddress.value = fullAddr
     dragCoords.value = { lat: suggestion.lat, lng: suggestion.lng }
     showConfirmLocation.value = true
-    searchQuery.value = suggestion.full_address || suggestion.name
+    searchQuery.value = fullAddr
+
+    // Validate suggestion: must contain Pernambuco and have a street name
+    const inPernambuco = fullAddr.toLowerCase().includes('pernambuco')
+    const hasStreet = !!(suggestion.name && suggestion.name.trim().length > 0)
+    dragLocationValid.value = inPernambuco && hasStreet
   }
 }
 
@@ -199,6 +284,7 @@ function activateDraggableMode() {
 async function reverseGeocode(lng: number, lat: number) {
   isResolvingAddress.value = true
   showConfirmLocation.value = true
+  dragLocationValid.value = false
 
   try {
     const { data } = await axios.get(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`, {
@@ -211,10 +297,27 @@ async function reverseGeocode(lng: number, lat: number) {
     })
 
     const feature = data.features?.[0]
-    dragAddress.value = feature?.place_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+
+    if (!feature) {
+      // No address found — only coordinates
+      dragAddress.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+      dragLocationValid.value = false
+      return
+    }
+
+    const placeName = feature.place_name || ''
+    dragAddress.value = placeName
+
+    // Validate: must be in Pernambuco
+    const inPernambuco = placeName.toLowerCase().includes('pernambuco')
+    // Validate: must have a real street name (not just coordinates)
+    const hasStreet = !!(feature.text && feature.text.trim().length > 0)
+
+    dragLocationValid.value = inPernambuco && hasStreet
   } catch (e) {
     console.error('Reverse geocoding error:', e)
     dragAddress.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+    dragLocationValid.value = false
   } finally {
     isResolvingAddress.value = false
   }
@@ -222,6 +325,16 @@ async function reverseGeocode(lng: number, lat: number) {
 
 function confirmDragLocation() {
   if (!dragCoords.value) return
+
+  // Block if location is outside Pernambuco or has no resolved street
+  if (!dragLocationValid.value) {
+    displayToast(
+      '🚫 Localização não permitida. O ponto deve estar dentro de Pernambuco e possuir um endereço válido com nome de rua.',
+      'error',
+      6000
+    )
+    return
+  }
 
   selectedLocation.value = {
     name: dragAddress.value,
@@ -257,6 +370,7 @@ function cancelDraggableMode() {
   newPointDescription.value = ''
   newPointRisk.value = 'medio'
   newPointReferencePoint.value = ''
+  clearPhotos()
 }
 
 function cancelNewPoint() {
@@ -266,6 +380,7 @@ function cancelNewPoint() {
   newPointRisk.value = 'medio'
   newPointReferencePoint.value = ''
   searchQuery.value = ''
+  clearPhotos()
 
   // Go back to confirm location mode if marker is still there
   if (draggableMarker && dragCoords.value) {
@@ -289,7 +404,7 @@ async function confirmNewPoint() {
   const logger = newPointLogger.value.trim() || 'Anônimo'
   const referencePoint = newPointReferencePoint.value.trim() || null
 
-  // POST to backend
+  // POST to backend as multipart/form-data
   try {
     const body: Record<string, unknown> = {
       intensity: riskToIntensity[newPointRisk.value],
@@ -305,7 +420,15 @@ async function confirmNewPoint() {
       body.referencePoint = referencePoint
     }
 
-    const { data } = await api.post('/flooding', body)
+    const formData = new FormData()
+    formData.append('data', new Blob([JSON.stringify(body)], { type: 'application/json' }))
+    selectedPhotos.value.forEach(file => {
+      formData.append('file', file)
+    })
+
+    const { data } = await api.post('/flooding', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
 
     const point: FloodPoint = {
       id: data.id ?? nextId++,
@@ -318,7 +441,8 @@ async function confirmNewPoint() {
       description,
       neighborhood,
       logger,
-      confirmationVotes: 0
+      confirmationVotes: 0,
+      images: data.images || []
     }
 
     dynamicPoints.value.push(point)
@@ -360,6 +484,12 @@ async function fetchFloodPoints() {
       longitude: number
       intensity: string
       confirmationVotes: number
+      images: string[]
+      user?: {
+        id: string
+        username: string
+        profilePicture: string
+      }
     }>>('/flooding')
 
     backendPoints.value = data.map((item) => ({
@@ -373,7 +503,9 @@ async function fetchFloodPoints() {
       description: item.description || '',
       neighborhood: item.neighborhood,
       logger: item.logger,
-      confirmationVotes: item.confirmationVotes
+      confirmationVotes: item.confirmationVotes,
+      images: item.images || [],
+      user: item.user ?? undefined
     }))
 
     // Add backend points to map
@@ -409,11 +541,61 @@ function addMarkerToMap(point: FloodPoint) {
 
   const el = document.createElement('div')
   el.className = `flood-marker risk-${point.riskLevel}`
+  el.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" class="flood-icon-svg">
+      <g fill="white">
+        <path d="M 50 22 L 20 48 L 26 48 L 26 62 L 74 62 L 74 48 L 80 48 Z" />
+        <rect x="62" y="24" width="8" height="16" />
+      </g>
+      <path d="M 20 70 Q 27.5 64 35 70 T 50 70 T 65 70 T 80 64" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+      <path d="M 20 82 Q 27.5 76 35 82 T 50 82 T 65 82 T 80 76" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+    </svg>
+  `
 
   const votes = point.confirmationVotes ?? 0
-  const loggerName = point.logger || 'Anônimo'
+  const images = point.images || []
 
-  const popup = new mapboxgl.Popup({ offset: 15, maxWidth: '300px' })
+  // Build user info HTML
+  const userName = point.user?.username || point.logger || 'Anônimo'
+  const userPicture = point.user?.profilePicture || ''
+  let userHtml = ''
+  if (userPicture) {
+    userHtml = `
+      <div class="popup-user">
+        <img src="${userPicture}" alt="${userName}" class="popup-user-avatar" referrerpolicy="no-referrer" />
+        <span class="popup-user-name">${userName}</span>
+      </div>
+    `
+  } else {
+    userHtml = `
+      <div class="popup-user">
+        <span class="popup-user-avatar-placeholder">👤</span>
+        <span class="popup-user-name">${userName}</span>
+      </div>
+    `
+  }
+
+  // Build image carousel HTML
+  let imagesHtml = ''
+  if (images.length > 0) {
+    const slides = images.map((url, i) => `
+      <div class="popup-carousel-slide" data-gallery-src="${url}" data-gallery-index="${i}">
+        <img src="${url}" alt="Foto ${i + 1}" loading="lazy" />
+        <div class="popup-carousel-counter">${i + 1} / ${images.length}</div>
+      </div>
+    `).join('')
+    imagesHtml = `
+      <div class="popup-carousel">
+        <div class="popup-carousel-track">${slides}</div>
+        ${images.length > 1 ? `
+          <button class="popup-carousel-btn prev" title="Anterior">❮</button>
+          <button class="popup-carousel-btn next" title="Próxima">❯</button>
+        ` : ''}
+      </div>
+    `
+  }
+
+  const popup = new mapboxgl.Popup({ offset: 15, maxWidth: '340px' })
     .setHTML(`
       <div class="popup-content">
         <div class="popup-name">${point.street || point.name}</div>
@@ -423,7 +605,8 @@ function addMarkerToMap(point: FloodPoint) {
           ⚠️ Risco ${riskLabels[point.riskLevel]}
         </div>
         ${point.description ? `<div class="popup-description">${point.description}</div>` : ''}
-        <div class="popup-logger">👤 ${loggerName}</div>
+        ${imagesHtml}
+        ${userHtml}
         <div class="popup-votes">
           <button class="popup-vote-btn" data-point-id="${point.id}" title="Confirmar alagamento">
             👍
@@ -452,15 +635,53 @@ function closeSuggestionsOnClickOutside(e: MouseEvent) {
 onMounted(() => {
   document.addEventListener('click', closeSuggestionsOnClickOutside)
 
-  // Event delegation for vote buttons inside map popups
+  // Event delegation for vote buttons and gallery clicks inside map popups
   document.addEventListener('click', (e: MouseEvent) => {
     const target = e.target as HTMLElement
+
+    // Vote button
     const voteBtn = target.closest('.popup-vote-btn') as HTMLElement | null
     if (voteBtn) {
       const pointId = voteBtn.getAttribute('data-point-id')
       if (pointId) {
         voteForPoint(Number(pointId))
       }
+      return
+    }
+
+    // Carousel buttons
+    const carouselBtn = target.closest('.popup-carousel-btn') as HTMLElement | null
+    if (carouselBtn) {
+      const carousel = carouselBtn.closest('.popup-carousel')
+      const track = carousel?.querySelector('.popup-carousel-track')
+      if (track) {
+        const scrollAmount = track.clientWidth
+        if (carouselBtn.classList.contains('next')) {
+          track.scrollBy({ left: scrollAmount, behavior: 'smooth' })
+        } else {
+          track.scrollBy({ left: -scrollAmount, behavior: 'smooth' })
+        }
+      }
+      return
+    }
+
+    // Gallery slide click — open lightbox
+    const slide = target.closest('.popup-carousel-slide') as HTMLElement | null
+    if (slide) {
+      const popup = slide.closest('.popup-content')
+      const allSlides = popup ? Array.from(popup.querySelectorAll('.popup-carousel-slide')) : []
+      const slideImages = allSlides.map(s => s.getAttribute('data-gallery-src') || '')
+      const index = Number(slide.getAttribute('data-gallery-index')) || 0
+      openLightbox(slideImages.length ? slideImages : [slide.getAttribute('data-gallery-src') || ''], index)
+      return
+    }
+
+    // Lightbox close
+    if (target.closest('.lightbox-overlay') && !target.closest('.lightbox-image') && !target.closest('.lightbox-btn')) {
+      closeLightbox()
+    }
+    if (target.closest('.lightbox-close')) {
+      closeLightbox()
     }
   })
 
@@ -486,11 +707,43 @@ onMounted(() => {
   })
 })
 
+// Lightbox state
+const lightboxImages = ref<string[]>([])
+const lightboxIndex = ref(0)
+const showLightbox = ref(false)
+
+function openLightbox(images: string[], index: number) {
+  lightboxImages.value = images
+  lightboxIndex.value = index
+  showLightbox.value = true
+}
+
+function closeLightbox() {
+  showLightbox.value = false
+}
+
+function lightboxNext() {
+  if (lightboxIndex.value < lightboxImages.value.length - 1) {
+    lightboxIndex.value++
+  } else {
+    lightboxIndex.value = 0
+  }
+}
+
+function lightboxPrev() {
+  if (lightboxIndex.value > 0) {
+    lightboxIndex.value--
+  } else {
+    lightboxIndex.value = lightboxImages.value.length - 1
+  }
+}
+
 onUnmounted(() => {
   document.removeEventListener('click', closeSuggestionsOnClickOutside)
   if (debounceTimer) clearTimeout(debounceTimer)
   if (toastTimer) clearTimeout(toastTimer)
   if (draggableMarker) draggableMarker.remove()
+  clearPhotos()
   map?.remove()
 })
 </script>
@@ -505,38 +758,30 @@ onUnmounted(() => {
 
     <!-- Search Bar -->
     <div v-if="hasToken" class="search-bar-wrapper">
+
+      <!-- Search Autocomplete -->
       <div class="search-autocomplete">
-        <div class="search-input-container">
+        <div class="search-input-wrapper">
           <span class="search-icon">🔍</span>
           <input
-            id="geocode-search"
             v-model="searchQuery"
             type="text"
-            placeholder="Buscar rua, avenida ou local..."
-            autocomplete="off"
+            class="search-input"
+            placeholder="Buscar endereço..."
             @input="onSearchInput"
             @focus="showSuggestions = suggestions.length > 0"
           />
           <span v-if="isSearching" class="search-spinner"></span>
-          <button v-if="searchQuery" class="search-clear" @click="searchQuery = ''; suggestions = []; showSuggestions = false">✕</button>
         </div>
-
-        <!-- Suggestions dropdown -->
-        <ul v-if="showSuggestions" class="search-suggestions">
+        <ul v-if="showSuggestions" class="suggestions-list">
           <li
             v-for="s in suggestions"
             :key="s.id"
-            class="search-suggestion-item"
+            class="suggestion-item"
             @click="selectSuggestion(s)"
           >
-            <span class="suggestion-icon">📍</span>
-            <div class="suggestion-text">
-              <div class="suggestion-name">{{ s.name }}</div>
-              <div class="suggestion-address">{{ s.full_address }}</div>
-            </div>
-            <div class="suggestion-coords">
-              {{ s.lat.toFixed(4) }}, {{ s.lng.toFixed(4) }}
-            </div>
+            <span class="suggestion-name">{{ s.name }}</span>
+            <span class="suggestion-address">{{ s.full_address }}</span>
           </li>
         </ul>
       </div>
@@ -578,7 +823,16 @@ onUnmounted(() => {
                 :class="{ active: newPointRisk === 'baixo', 'risk-baixo': true }"
                 @click="newPointRisk = 'baixo'"
               >
-                <span class="risk-dot" :style="{ background: riskColors.baixo }"></span>
+                <span class="risk-icon-wrapper" :style="{ background: riskColors.baixo }">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" class="flood-icon-svg">
+                    <g fill="white">
+                      <path d="M 50 22 L 20 48 L 26 48 L 26 62 L 74 62 L 74 48 L 80 48 Z" />
+                      <rect x="62" y="24" width="8" height="16" />
+                    </g>
+                    <path d="M 20 70 Q 27.5 64 35 70 T 50 70 T 65 70 T 80 64" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M 20 82 Q 27.5 76 35 82 T 50 82 T 65 82 T 80 76" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+                  </svg>
+                </span>
                 Baixo
               </button>
               <button
@@ -586,7 +840,16 @@ onUnmounted(() => {
                 :class="{ active: newPointRisk === 'medio', 'risk-medio': true }"
                 @click="newPointRisk = 'medio'"
               >
-                <span class="risk-dot" :style="{ background: riskColors.medio }"></span>
+                <span class="risk-icon-wrapper" :style="{ background: riskColors.medio }">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" class="flood-icon-svg">
+                    <g fill="white">
+                      <path d="M 50 22 L 20 48 L 26 48 L 26 62 L 74 62 L 74 48 L 80 48 Z" />
+                      <rect x="62" y="24" width="8" height="16" />
+                    </g>
+                    <path d="M 20 70 Q 27.5 64 35 70 T 50 70 T 65 70 T 80 64" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M 20 82 Q 27.5 76 35 82 T 50 82 T 65 82 T 80 76" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+                  </svg>
+                </span>
                 Médio
               </button>
               <button
@@ -594,21 +857,24 @@ onUnmounted(() => {
                 :class="{ active: newPointRisk === 'alto', 'risk-alto': true }"
                 @click="newPointRisk = 'alto'"
               >
-                <span class="risk-dot" :style="{ background: riskColors.alto }"></span>
+                <span class="risk-icon-wrapper" :style="{ background: riskColors.alto }">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" class="flood-icon-svg">
+                    <g fill="white">
+                      <path d="M 50 22 L 20 48 L 26 48 L 26 62 L 74 62 L 74 48 L 80 48 Z" />
+                      <rect x="62" y="24" width="8" height="16" />
+                    </g>
+                    <path d="M 20 70 Q 27.5 64 35 70 T 50 70 T 65 70 T 80 64" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M 20 82 Q 27.5 76 35 82 T 50 82 T 65 82 T 80 76" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+                  </svg>
+                </span>
                 Alto
               </button>
             </div>
           </div>
 
           <div class="form-field">
-            <label for="point-logger">Seu Nome</label>
-            <input
-              id="point-logger"
-              v-model="newPointLogger"
-              type="text"
-              class="form-input"
-              placeholder="Seu nome (ex: Carlos Alves)"
-            />
+            <label for="point-logger">Reportado por</label>
+            <div class="form-readonly-value" id="point-logger">👤 {{ newPointLogger }}</div>
           </div>
 
           <div class="form-field">
@@ -619,6 +885,53 @@ onUnmounted(() => {
               placeholder="Descreva a situação do alagamento neste local..."
               rows="3"
             ></textarea>
+          </div>
+
+          <!-- Photo Upload -->
+          <div class="form-field">
+            <label>Fotos (máximo {{ MAX_PHOTOS }})</label>
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              style="display: none"
+              @change="onPhotoSelected"
+            />
+            <div class="photo-upload-area">
+              <!-- Photo Previews -->
+              <div v-if="photoPreviewUrls.length > 0" class="photo-preview-grid">
+                <div
+                  v-for="(url, index) in photoPreviewUrls"
+                  :key="index"
+                  class="photo-preview-item"
+                >
+                  <img :src="url" :alt="`Foto ${index + 1}`" />
+                  <button class="photo-remove-btn" @click="removePhoto(index)" title="Remover foto">✕</button>
+                </div>
+                <!-- Add more button (if under limit) -->
+                <button
+                  v-if="selectedPhotos.length < MAX_PHOTOS"
+                  class="photo-add-more"
+                  @click="triggerFileInput"
+                  title="Adicionar mais fotos"
+                >
+                  <span class="photo-add-icon">+</span>
+                  <span class="photo-add-text">Adicionar</span>
+                </button>
+              </div>
+              <!-- Empty state -->
+              <button
+                v-else
+                class="photo-upload-btn"
+                @click="triggerFileInput"
+                type="button"
+              >
+                <span class="photo-upload-icon">📷</span>
+                <span class="photo-upload-label">Clique para adicionar fotos</span>
+                <span class="photo-upload-hint">JPG, PNG, WebP • Máx. 10MB cada</span>
+              </button>
+            </div>
           </div>
 
           <div class="form-actions">
@@ -649,7 +962,7 @@ onUnmounted(() => {
         <button
           v-if="hasToken && !isDraggableMode"
           class="fab-report"
-          @click="activateDraggableMode"
+          @click="handleReportClick"
           title="Reportar alagamento"
         >
           <span class="fab-icon">🚨</span>
@@ -684,9 +997,13 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+          <div v-if="!isResolvingAddress && !dragLocationValid" class="confirm-location-warning">
+            <span class="warning-icon">🚫</span>
+            <span>Região não permitida. O ponto deve estar em <strong>Pernambuco</strong> e possuir um endereço válido.</span>
+          </div>
           <div class="confirm-location-actions">
             <button class="btn btn-secondary btn-sm" @click="cancelDraggableMode">Cancelar</button>
-            <button class="btn btn-primary btn-sm" @click="confirmDragLocation" :disabled="isResolvingAddress">
+            <button class="btn btn-primary btn-sm" @click="confirmDragLocation" :disabled="isResolvingAddress || !dragLocationValid">
               ✓ Confirmar Local
             </button>
           </div>
@@ -726,6 +1043,23 @@ onUnmounted(() => {
         </span>
         <span class="toast-text">{{ toastMessage }}</span>
         <button class="toast-close" @click.stop="dismissToast">✕</button>
+      </div>
+    </Transition>
+
+    <!-- Lightbox Modal -->
+    <Transition name="lightbox-fade">
+      <div v-if="showLightbox" class="lightbox-overlay" @click.self="closeLightbox">
+        <button class="lightbox-close" @click="closeLightbox">✕</button>
+        
+        <button v-if="lightboxImages.length > 1" class="lightbox-btn prev" @click.stop="lightboxPrev">❮</button>
+        
+        <img :src="lightboxImages[lightboxIndex]" class="lightbox-image" alt="Foto do alagamento" />
+        
+        <button v-if="lightboxImages.length > 1" class="lightbox-btn next" @click.stop="lightboxNext">❯</button>
+        
+        <div v-if="lightboxImages.length > 1" class="lightbox-counter">
+          {{ lightboxIndex + 1 }} / {{ lightboxImages.length }}
+        </div>
       </div>
     </Transition>
   </section>
