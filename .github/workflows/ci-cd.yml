@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "Injetando a nova imagem no cluster K3s..."
           
-          kubectl set image deployment/alerta-recife-frontend alerta-recife-frontend=${{ secrets.DOCKER_USERNAME }}/alerta-recife-frontend:$PROJECT_VERSION
+          kubectl set image deployment/alerta-recife-frontend frontend-alerta-recife=${{ secrets.DOCKER_USERNAME }}/alerta-recife-frontend:$PROJECT_VERSION
           
           echo "Acompanhando o status da atualização (Rollout)..."
           kubectl rollout status deployment/alerta-recife-frontend
