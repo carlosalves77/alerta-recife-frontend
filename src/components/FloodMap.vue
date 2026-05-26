@@ -298,7 +298,6 @@ function cancelNewPoint() {
   newPointDescription.value = ''
   newPointRisk.value = 'medio'
   newPointReferencePoint.value = ''
-  searchQuery.value = ''
   clearPhotos()
 
   // Go back to confirm location mode if marker is still there
