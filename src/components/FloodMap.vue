@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { riskColors, riskLabels, intensityToRisk, riskToIntensity, type FloodPoint } from '../data/floodData'
@@ -67,8 +67,9 @@ const showNewPointForm = ref(false)
 const selectedLocation = ref<{ name: string; lat: number; lng: number; full_address: string } | null>(null)
 const newPointRisk = ref<FloodPoint['riskLevel']>('medio')
 const newPointDescription = ref('')
-const loggedUsername = authService.getCachedProfile()?.username || authService.getUserInfo()?.name || 'Anônimo'
-const newPointLogger = ref(loggedUsername)
+const newPointLogger = computed(() => {
+  return authService.getCachedProfile()?.username || authService.getUserInfo()?.name || 'Anônimo'
+})
 
 const newPointReferencePoint = ref('')
 

@@ -8,11 +8,13 @@ const route = useRoute()
 const status = ref<'loading' | 'error'>('loading')
 const errorMsg = ref('')
 
-onMounted(() => {
+onMounted(async () => {
   const token = route.query.token as string | undefined
 
   if (token) {
     authService.saveToken(token)
+    // Fetch and cache user profile from /api/v1/auth/me before redirecting
+    await authService.fetchUserProfile()
     router.replace({ name: 'home', query: { authSuccess: '1' } })
   } else {
     status.value = 'error'
