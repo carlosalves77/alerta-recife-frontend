@@ -392,26 +392,16 @@ function clearAllMarkers() {
 
 async function fetchFloodPoints() {
   try {
-    const { data } = await api.get<Array<{
-      id: number
-      street: string
-      logger: string
-      referencePoint: string | null
-      neighborhood: string
-      description: string
-      latitude: number
-      longitude: number
-      intensity: string
-      confirmationVotes: number
-      images: string[]
-      user?: {
-        id: string
-        username: string
-        profilePicture: string
-      }
-    }>>('/flooding')
+    const { data } = await api.get('/flooding')
 
-    backendPoints.value = data.map((item) => ({
+    // Defensive: handle non-array responses (e.g. paginated object or proxy misconfiguration)
+    const items = Array.isArray(data) ? data : (Array.isArray(data?.content) ? data.content : null)
+    if (!items) {
+      console.error('Resposta inesperada do backend (não é um array):', typeof data, data)
+      return
+    }
+
+    backendPoints.value = items.map((item: any) => ({
       id: item.id,
       name: item.street || item.neighborhood,
       street: item.street,
