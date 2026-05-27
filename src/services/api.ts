@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { API_BASE } from '../data/floodData'
 
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_API || API_BASE,
+  baseURL: API_BASE,
   timeout: 10000,
   withCredentials: true,
   headers: {

@@ -23,12 +23,15 @@ FROM nginx:1.27-alpine AS production
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy custom nginx config as template (uses ${BACKEND_URL})
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
+# nginx docker image auto-processes /etc/nginx/templates/*.template with envsubst
+# and outputs to /etc/nginx/conf.d/ — BACKEND_URL will be substituted automatically
 CMD ["nginx", "-g", "daemon off;"]
+
