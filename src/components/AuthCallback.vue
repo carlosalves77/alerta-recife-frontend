@@ -1,24 +1,25 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import authService from '../services/authService'
 
 const router = useRouter()
-const route = useRoute()
 const status = ref<'loading' | 'error'>('loading')
 const errorMsg = ref('')
 
 onMounted(async () => {
-  const token = route.query.token as string | undefined
-
-  if (token) {
-    authService.saveToken(token)
-    // Fetch and cache user profile from /api/v1/auth/me before redirecting
-    await authService.fetchUserProfile()
-    router.replace({ name: 'home', query: { authSuccess: '1' } })
-  } else {
+  try {
+    // O cookie auth_token já foi setado pelo Spring no redirect
+    // Só busca o perfil do usuário (cookie vai automaticamente)
+    const profile = await authService.fetchUserProfile()
+    if (profile) {
+      router.replace({ name: 'home', query: { authSuccess: '1' } })
+    } else {
+      throw new Error('Perfil não encontrado')
+    }
+  } catch (error) {
     status.value = 'error'
-    errorMsg.value = 'Token de autenticação não encontrado. Tente novamente.'
+    errorMsg.value = 'Erro na autenticação. Tente novamente.'
     setTimeout(() => {
       router.replace({ name: 'login' })
     }, 3000)

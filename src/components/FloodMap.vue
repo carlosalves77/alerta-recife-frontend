@@ -68,7 +68,7 @@ const selectedLocation = ref<{ name: string; lat: number; lng: number; full_addr
 const newPointRisk = ref<FloodPoint['riskLevel']>('medio')
 const newPointDescription = ref('')
 const newPointLogger = computed(() => {
-  return authService.getCachedProfile()?.username || authService.getUserInfo()?.name || 'Anônimo'
+  return authService.getCachedProfile()?.username || 'Anônimo'
 })
 
 const newPointReferencePoint = ref('')
