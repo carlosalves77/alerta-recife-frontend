@@ -10,13 +10,7 @@ const route = useRoute()
 const activeTab = ref<'login' | 'register'>('login')
 
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_API
-
-if (!BACKEND_URL) {
-  throw new Error("VITE_BACKEND_API não definida no .env")
-}
-
-const GOOGLE_AUTH_URL = `${BACKEND_URL}/oauth2/authorization/google`
+const GOOGLE_AUTH_URL = `/oauth2/authorization/google`
 
 onMounted(() => {
   const queryMode = route.query.mode as string || props.mode
