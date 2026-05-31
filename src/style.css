@@ -603,6 +603,141 @@ a:hover{color:#22d3ee}
   .confirm-location-actions .btn{width:100%}
   .toast-notification{max-width:calc(100% - 32px);width:auto;top:16px;font-size:0.85rem;padding:12px 16px}
 }
+
+/* === Mobile Fullscreen Map === */
+
+/* Expand overlay — mobile only */
+.map-expand-overlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .map-expand-overlay {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.15);
+    transition: background 0.3s ease;
+  }
+  .map-expand-overlay:active {
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .map-expand-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--bg-glass-border);
+    border-radius: 100px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: expandHintPulse 2.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes expandHintPulse {
+    0%, 100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); }
+    50% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(6, 182, 212, 0.2); }
+  }
+  .map-expand-icon {
+    font-size: 1.2rem;
+    color: var(--accent-cyan);
+  }
+
+  /* Expanded state — fullscreen map */
+  .map-section.map-expanded {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    padding: 0;
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    animation: mapExpandIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes mapExpandIn {
+    from { opacity: 0.8; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  .map-section.map-expanded .map-section-header {
+    display: none;
+  }
+  .map-section.map-expanded .search-bar-wrapper {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    margin: 0;
+    padding: 0;
+    max-height: 55vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .map-section.map-expanded .search-bar-wrapper .new-point-form {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: none;
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+  }
+  .map-section.map-expanded .map-wrapper {
+    flex: 1;
+    max-width: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+  .map-section.map-expanded .map-container {
+    height: 100% !important;
+  }
+  .map-section.map-expanded .map-legend {
+    bottom: 16px;
+    left: 16px;
+  }
+}
+
+/* Close/collapse button — always hidden on desktop */
+.map-collapse-btn {
+  display: none;
+}
+@media (max-width: 768px) {
+  .map-collapse-btn {
+    display: flex;
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 20;
+    width: 44px;
+    height: 44px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--bg-glass-border);
+    border-radius: 50%;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    transition: all 0.2s ease;
+  }
+  .map-collapse-btn:hover,
+  .map-collapse-btn:active {
+    background: rgba(239, 68, 68, 0.6);
+    border-color: rgba(239, 68, 68, 0.4);
+    transform: scale(1.05);
+  }
+}
+
 .mapboxgl-ctrl-bottom-right,.mapboxgl-ctrl-bottom-left{z-index:5}
 
 /* --- Photo Upload Area --- */

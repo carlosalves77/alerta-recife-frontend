@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { onMounted, onUnmounted, ref, computed, nextTick, watch } from 'vue'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { riskColors, riskLabels, intensityToRisk, riskToIntensity, type FloodPoint } from '../data/floodData'
@@ -639,16 +639,43 @@ function lightboxPrev() {
   }
 }
 
+// Mobile fullscreen map state
+const isMapExpanded = ref(false)
+
+function expandMap() {
+  isMapExpanded.value = true
+  document.body.style.overflow = 'hidden'
+  nextTick(() => {
+    map?.resize()
+  })
+}
+
+function collapseMap() {
+  isMapExpanded.value = false
+  document.body.style.overflow = ''
+  nextTick(() => {
+    map?.resize()
+  })
+}
+
+// Auto-expand map when entering draggable mode on mobile
+watch(isDraggableMode, (val) => {
+  if (val && window.innerWidth <= 768 && !isMapExpanded.value) {
+    expandMap()
+  }
+})
+
 onUnmounted(() => {
   if (toastTimer) clearTimeout(toastTimer)
   if (draggableMarker) draggableMarker.remove()
   clearPhotos()
+  document.body.style.overflow = ''
   map?.remove()
 })
 </script>
 
 <template>
-  <section class="map-section" id="mapa">
+  <section class="map-section" :class="{ 'map-expanded': isMapExpanded }" id="mapa">
     <div class="map-section-header">
       <div class="section-tag">📍 Mapa Interativo</div>
       <h2>Pontos de Alagamento</h2>
@@ -817,6 +844,30 @@ onUnmounted(() => {
     </div>
 
     <div class="map-wrapper">
+      <!-- Mobile tap-to-expand overlay -->
+      <div
+        v-if="hasToken && !isMapExpanded && !isDraggableMode"
+        class="map-expand-overlay"
+        @click="expandMap"
+      >
+        <div class="map-expand-hint">
+          <span class="map-expand-icon">⤢</span>
+          <span>Toque para expandir</span>
+        </div>
+      </div>
+
+      <!-- Close fullscreen button -->
+      <Transition name="fab-fade">
+        <button
+          v-if="isMapExpanded"
+          class="map-collapse-btn"
+          @click="collapseMap"
+          title="Fechar mapa"
+        >
+          ✕
+        </button>
+      </Transition>
+
       <!-- Map renders here -->
       <div v-if="hasToken" ref="mapContainerRef" class="map-container"></div>
 
