@@ -15,19 +15,15 @@ const showMyPoints = ref(false)
 const userInitial = computed(() => {
   if (userProfile.value?.username) return userProfile.value.username.charAt(0).toUpperCase()
   if (userProfile.value?.email) return userProfile.value.email.charAt(0).toUpperCase()
-  // Fallback to JWT data
-  const jwt = authService.getUserInfo()
-  if (jwt?.name) return jwt.name.charAt(0).toUpperCase()
-  if (jwt?.email) return jwt.email.charAt(0).toUpperCase()
   return '?'
 })
 
 const displayName = computed(() => {
-  return userProfile.value?.username || authService.getUserInfo()?.name || 'Usuário'
+  return userProfile.value?.username || 'Usuário'
 })
 
 const displayEmail = computed(() => {
-  return userProfile.value?.email || authService.getUserInfo()?.email || ''
+  return userProfile.value?.email || ''
 })
 
 const profilePicture = computed(() => {

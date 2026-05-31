@@ -28,6 +28,10 @@ export default defineConfig(({ mode }) => {
         '/oauth2': {
           target: env.VITE_BACKEND_API,
           changeOrigin: true
+        },
+        '/login': {
+          target: env.VITE_BACKEND_API,
+          changeOrigin: true
         }
       }
     }

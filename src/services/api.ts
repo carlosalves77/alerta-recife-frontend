@@ -11,13 +11,4 @@ const api = axios.create({
   }
 })
 
-// Interceptor: attach Bearer token to every request if available
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('alerta_recife_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
 export default api
