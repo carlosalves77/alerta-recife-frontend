@@ -647,6 +647,10 @@ function expandMap() {
   document.body.style.overflow = 'hidden'
   nextTick(() => {
     map?.resize()
+    // Resize again after layout settles (CSS may not be fully applied on first nextTick)
+    setTimeout(() => map?.resize(), 50)
+    // Resize after the expand animation completes (350ms)
+    setTimeout(() => map?.resize(), 400)
   })
 }
 
