@@ -577,7 +577,6 @@ onMounted(() => {
       return
     }
 
-    // Lightbox close
     if (target.closest('.lightbox-overlay') && !target.closest('.lightbox-image') && !target.closest('.lightbox-btn')) {
       closeLightbox()
     }
@@ -602,13 +601,21 @@ onMounted(() => {
 
   map.addControl(new mapboxgl.NavigationControl(), 'top-right')
 
+  const geolocateControl = new mapboxgl.GeolocateControl({
+    positionOptions: {
+      enableHighAccuracy: true  
+    },
+    trackUserLocation: true,      
+    showUserHeading: true         
+  })
+  map.addControl(geolocateControl, 'top-right')
+
   map.on('load', () => {
-    // Fetch flood points from backend API
+  
     fetchFloodPoints()
   })
 })
 
-// Lightbox state
 const lightboxImages = ref<string[]>([])
 const lightboxIndex = ref(0)
 const showLightbox = ref(false)
