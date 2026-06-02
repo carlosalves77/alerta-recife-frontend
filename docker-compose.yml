@@ -9,6 +9,6 @@ services:
     ports:
       - "80:80"
     environment:
-      - BACKEND_URL=https://recifeapi.carldev.online
+      - BACKEND_URL=${VITE_BACKEND_URL}
     restart: unless-stopped
 
