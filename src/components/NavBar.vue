@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import authService, { type UserProfile } from '../services/authService'
 import MyFloodPoints from './MyFloodPoints.vue'
+
+const route = useRoute()
 
 const router = useRouter()
 const scrolled = ref(false)
@@ -40,6 +42,18 @@ function toggleMenu() {
 
 function closeMenu() {
   menuOpen.value = false
+}
+
+function scrollToSection(sectionId: string) {
+  closeMenu()
+  if (route.path !== '/') {
+    router.push({ path: '/', hash: `#${sectionId}` })
+    return
+  }
+  const el = document.getElementById(sectionId)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth' })
+  }
 }
 
 function toggleDropdown() {
@@ -110,9 +124,9 @@ onUnmounted(() => {
       </router-link>
 
       <ul class="navbar-links" :class="{ open: menuOpen }">
-        <li><a href="/#mapa" @click="closeMenu">Mapa</a></li>
-        <li><a href="/#sobre" @click="closeMenu">Sobre</a></li>
-        <li><a href="/#contato" @click="closeMenu">Contato</a></li>
+        <li><a href="#mapa" @click.prevent="scrollToSection('mapa')">Mapa</a></li>
+        <li><a href="#sobre" @click.prevent="scrollToSection('sobre')">Sobre</a></li>
+        <li><a href="#contato" @click.prevent="scrollToSection('contato')">Contato</a></li>
 
         <!-- Mobile auth buttons -->
         <li v-if="!isLoggedIn" class="navbar-auth-mobile">

@@ -16,6 +16,13 @@ onMounted(() => {
   }
   raindrops.value = drops
 })
+
+function scrollTo(sectionId: string) {
+  const el = document.getElementById(sectionId)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth' })
+  }
+}
 </script>
 
 <template>
@@ -60,10 +67,10 @@ onMounted(() => {
       </p>
 
       <div class="hero-actions">
-        <a href="#mapa" class="btn btn-primary">
+        <a href="#mapa" class="btn btn-primary" @click.prevent="scrollTo('mapa')">
           🗺️ Ver Mapa de Alagamentos
         </a>
-        <a href="#sobre" class="btn btn-secondary">
+        <a href="#sobre" class="btn btn-secondary" @click.prevent="scrollTo('sobre')">
           Saiba Mais
         </a>
       </div>
