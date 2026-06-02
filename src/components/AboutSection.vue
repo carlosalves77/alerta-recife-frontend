@@ -1,3 +1,25 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
+
+const floodingPointsCount = ref(0)
+const neighborhoodsCount = ref(0)
+
+onMounted(async () => {
+  try {
+    const response = await axios.get('https://recifeapi.carldev.online/api/v1/flooding')
+    const data = response.data
+
+    floodingPointsCount.value = data.length
+
+    const uniqueNeighborhoods = new Set(data.map((point: any) => point.neighborhood))
+    neighborhoodsCount.value = uniqueNeighborhoods.size
+  } catch (error) {
+    console.error('Erro ao buscar dados de alagamento:', error)
+  }
+})
+</script>
+
 <template>
   <section class="about-section" id="sobre">
     <div class="about-section-header">
@@ -43,12 +65,12 @@
 
     <div class="stats-bar">
       <div class="stat-item">
-        <div class="stat-number">12+</div>
+        <div class="stat-number">{{ floodingPointsCount }}</div>
         <div class="stat-label">Pontos mapeados</div>
       </div>
       <div class="stat-item">
-        <div class="stat-number">5</div>
-        <div class="stat-label">Cidades cobertas</div>
+        <div class="stat-number">{{ neighborhoodsCount }}</div>
+        <div class="stat-label">Bairros cobertos</div>
       </div>
       <div class="stat-item">
         <div class="stat-number">24/7</div>
