@@ -25,20 +25,20 @@ O **Alerta Recife** é uma aplicação web de mapeamento colaborativo que permit
 
 ### ✨ Funcionalidades
 
-- 🗺️ **Mapa interativo** — Visualização de pontos de alagamento com Mapbox GL JS no estilo dark mode
-- 📍 **Reporte de alagamentos** — Marcador arrastável com reverse geocoding e validação de endereço (restrito a Pernambuco)
-- 📷 **Upload de fotos** — Até 6 imagens por reporte com preview em grid e lightbox para visualização
-- 👍 **Confirmação de ocorrências** — Sistema de votos para validar alertas existentes
-- 🔐 **Autenticação via Google OAuth 2.0** — Login seguro com perfil do Google
-- 👤 **Meus Alertas** — Painel para gerenciar seus reportes (visualizar e excluir)
-- 📊 **Estatísticas dinâmicas** — Contagem automática de pontos mapeados e bairros cobertos via API
-- 📱 **Design responsivo** — Mapa expansível em tela cheia no mobile com overlay de toque
-- ⚠️ **Níveis de risco** — Classificação visual por cores (Alto, Médio, Baixo)
-- 🖼️ **Carrossel de imagens** — Navegação entre fotos nos popups dos marcadores
+- **Mapa interativo** — Visualização de pontos de alagamento com Mapbox GL JS no estilo dark mode
+- **Reporte de alagamentos** — Marcador arrastável com reverse geocoding e validação de endereço (restrito a Pernambuco)
+- **Upload de fotos** — Até 6 imagens por reporte com preview em grid e lightbox para visualização
+- **Confirmação de ocorrências** — Sistema de votos para validar alertas existentes
+- **Autenticação via Google OAuth 2.0** — Login seguro com perfil do Google
+- **Meus Alertas** — Painel para gerenciar seus reportes (visualizar e excluir)
+- **Estatísticas dinâmicas** — Contagem automática de pontos mapeados e bairros cobertos via API
+- **Design responsivo** — Mapa expansível em tela cheia no mobile com overlay de toque
+- **Níveis de risco** — Classificação visual por cores (Alto, Médio, Baixo)
+- **Carrossel de imagens** — Navegação entre fotos nos popups dos marcadores
 
 ---
 
-## 🏗️ Arquitetura
+## Arquitetura
 
 ```
 src/
@@ -117,7 +117,7 @@ npm run preview   # Pré-visualização local do build
 
 ---
 
-## 🐳 Docker
+## Docker
 
 ### Build e Execução Manual
 
@@ -186,7 +186,7 @@ Push na branch master
 
 ---
 
-## 📐 Design
+## Design
 
 - **Dark mode** com paleta baseada em tons de azul-escuro (`#0a0e1a`)
 - **Glassmorphism** com `backdrop-filter` em cards e navbar
@@ -196,8 +196,6 @@ Push na branch master
 
 ---
 
-## 📄 Licença
+## Licença
 
 Este projeto é uma iniciativa comunitária para a segurança dos cidadãos de Recife.
-
-Feito com 💙 para a comunidade Recifense.
