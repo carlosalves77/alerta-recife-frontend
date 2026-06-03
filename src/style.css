@@ -753,6 +753,44 @@ a:hover{color:#22d3ee}
 
 .mapboxgl-ctrl-bottom-right,.mapboxgl-ctrl-bottom-left{z-index:5}
 
+/* Geolocation control dark theme */
+.mapboxgl-ctrl-geolocate {
+  background: var(--bg-glass) !important;
+  border: 1px solid var(--bg-glass-border) !important;
+  border-radius: 8px !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.mapboxgl-ctrl-geolocate .mapboxgl-ctrl-icon {
+  filter: invert(1) brightness(1.2);
+}
+.mapboxgl-ctrl-geolocate:hover {
+  background: rgba(6, 182, 212, 0.15) !important;
+  border-color: rgba(6, 182, 212, 0.3) !important;
+}
+.mapboxgl-ctrl-group {
+  background: var(--bg-glass) !important;
+  border: 1px solid var(--bg-glass-border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.mapboxgl-ctrl-group button {
+  border-color: rgba(255,255,255,0.06) !important;
+}
+.mapboxgl-ctrl-group button .mapboxgl-ctrl-icon {
+  filter: invert(1) brightness(1.2);
+}
+.mapboxgl-ctrl-group button:hover {
+  background: rgba(6, 182, 212, 0.12) !important;
+}
+
+/* 3D map canvas depth */
+.map-container canvas {
+  outline: none;
+}
+
 /* --- Photo Upload Area --- */
 .photo-upload-area {
   margin-top: 8px;

@@ -601,17 +601,71 @@ onMounted(() => {
 
   map.addControl(new mapboxgl.NavigationControl(), 'top-right')
 
+  // --- Geolocation Control with mobile permission fix ---
   const geolocateControl = new mapboxgl.GeolocateControl({
     positionOptions: {
-      enableHighAccuracy: true  
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
     },
-    trackUserLocation: true,      
-    showUserHeading: true         
+    trackUserLocation: true,
+    showUserHeading: true
   })
   map.addControl(geolocateControl, 'top-right')
 
+  // Handle geolocation errors (permission denied, unavailable, timeout)
+  geolocateControl.on('error', (e: GeolocationPositionError) => {
+    console.warn('Geolocation error:', e.code, e.message)
+    if (e.code === 1) {
+      displayToast(
+        '📍 Permissão de localização negada. Ative nas configurações do navegador para usar este recurso.',
+        'error',
+        6000
+      )
+    } else if (e.code === 2) {
+      displayToast(
+        '📍 Localização indisponível. Verifique se o GPS está ativado no seu dispositivo.',
+        'error',
+        5000
+      )
+    } else if (e.code === 3) {
+      displayToast(
+        '📍 Tempo esgotado ao obter localização. Tente novamente.',
+        'info',
+        4000
+      )
+    }
+  })
+
+  // On mobile, pre-check and request geolocation permission before the control fires
+  // This avoids the silent failure on iOS/Android WebViews
+  if ('permissions' in navigator) {
+    navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+      if (result.state === 'prompt') {
+        // Trigger a real geolocation request to prompt the user for permission
+        // This ensures the browser shows the permission dialog on mobile
+        navigator.geolocation.getCurrentPosition(
+          () => { /* Permission granted — geolocate control will work */ },
+          () => { /* Permission denied — geolocate control error handler will fire */ },
+          { enableHighAccuracy: true, timeout: 10000 }
+        )
+      }
+      // Listen for permission state changes
+      result.addEventListener('change', () => {
+        if (result.state === 'denied') {
+          displayToast(
+            '📍 Localização desativada. Reative nas configurações do navegador.',
+            'error',
+            5000
+          )
+        }
+      })
+    }).catch(() => {
+      // Permissions API not fully supported — fallback silently
+    })
+  }
+
   map.on('load', () => {
-  
     fetchFloodPoints()
   })
 })

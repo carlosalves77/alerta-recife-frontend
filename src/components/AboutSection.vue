@@ -7,7 +7,7 @@ const neighborhoodsCount = ref(0)
 
 onMounted(async () => {
   try {
-    const response = await axios.get('https://recifeapi.carldev.online/api/v1/flooding')
+    const response = await axios.get('/api/v1/flooding')
     const data = response.data
 
     floodingPointsCount.value = data.length
